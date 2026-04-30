@@ -1,0 +1,253 @@
+:root {
+  /* Base palette */
+  --bg: #0f1115;
+  --bg-elevated: #141821;
+  --panel: #171b24;
+  --panel-hover: #1d2230;
+
+  /* Borders + depth */
+  --border: rgba(255,255,255,0.06);
+  --border-strong: rgba(255,255,255,0.12);
+  --shadow: 0 6px 24px rgba(0,0,0,0.45);
+
+  /* Text */
+  --text-primary: #e6e8ee;
+  --text-secondary: #a6adbb;
+  --text-muted: #6b7280;
+
+  /* Accents */
+  --accent: #4f8cff;
+  --accent-soft: rgba(79,140,255,0.15);
+
+  /* Status */
+  --green: #22c55e;
+  --green-soft: rgba(34,197,94,0.15);
+
+  --red: #ef4444;
+  --red-soft: rgba(239,68,68,0.15);
+
+  --yellow: #f59e0b;
+  --yellow-soft: rgba(245,158,11,0.15);
+
+  /* Radius */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  /* Spacing */
+  --space: 16px;
+}
+
+/* ---------- BASE ---------- */
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+}
+
+/* ---------- LAYOUT ---------- */
+
+.app {
+  display: flex;
+  height: 100vh;
+}
+
+/* ---------- SIDEBAR ---------- */
+
+.sidebar {
+  width: 240px;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.sidebar-card {
+  background: var(--panel);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  border: 1px solid var(--border);
+}
+
+.sidebar h1 {
+  font-size: 18px;
+  margin: 0;
+  font-weight: 600;
+}
+
+.sidebar-nav button {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.sidebar-nav button:hover {
+  background: var(--panel-hover);
+  color: var(--text-primary);
+}
+
+.sidebar-nav button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: rgba(79,140,255,0.3);
+}
+
+/* ---------- MAIN ---------- */
+
+.main {
+  flex: 1;
+  padding: 32px;
+  overflow-y: auto;
+}
+
+.page-title {
+  font-size: 26px;
+  font-weight: 600;
+  margin-bottom: 24px;
+}
+
+/* ---------- CARDS ---------- */
+
+.card {
+  background: var(--panel);
+  border-radius: var(--radius-md);
+  padding: 18px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  transition: all 0.15s ease;
+}
+
+.card:hover {
+  border-color: var(--border-strong);
+}
+
+.card-title {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.card-value {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* ---------- GRID ---------- */
+
+.grid {
+  display: grid;
+  gap: 16px;
+}
+
+.grid-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.grid-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+/* ---------- STATUS PILLS ---------- */
+
+.pill {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.pill-green {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.pill-red {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.pill-yellow {
+  background: var(--yellow-soft);
+  color: var(--yellow);
+}
+
+.pill-neutral {
+  background: rgba(255,255,255,0.06);
+  color: var(--text-secondary);
+}
+
+/* ---------- BUTTONS ---------- */
+
+button {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+button:hover {
+  background: var(--panel-hover);
+  border-color: var(--border-strong);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+button.primary:hover {
+  filter: brightness(1.1);
+}
+
+/* ---------- TEXT HELPERS ---------- */
+
+.muted {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.section {
+  margin-top: 24px;
+}
+/* Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(166, 173, 187, 0.35) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(166, 173, 187, 0.28);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(166, 173, 187, 0.42);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}

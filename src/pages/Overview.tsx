@@ -1,55 +1,18 @@
 import { useEffect, useMemo, useState } from "react"
+import { listen } from "@tauri-apps/api/event"
+
 import {
   getAllowedSignersInfo,
   getAuthorityStatus,
   getTrustBundleInfo,
+  getWorkbenchMode,
 } from "../lib/api"
+
 import type {
   AllowedSignersInfo,
   AuthorityStatus,
   TrustBundleInfo,
 } from "../lib/types"
-
-function StatusCard(props: {
-  title: string
-  status: string
-  detail: string
-}) {
-  return (
-    <section
-      style={{
-        border: "1px solid #27272a",
-        borderRadius: 16,
-        padding: 16,
-        background: "#0f0f11",
-        minWidth: 0,
-      }}
-    >
-      <div style={{ fontSize: 14, color: "#a1a1aa", marginBottom: 8 }}>{props.title}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>{props.status}</div>
-      <div style={{ color: "#d4d4d8", wordBreak: "break-all" }}>{props.detail}</div>
-    </section>
-  )
-}
-
-function SessionChip(props: { active: boolean }) {
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        padding: "4px 10px",
-        borderRadius: 999,
-        border: "1px solid #3f3f46",
-        background: props.active ? "#0f1a12" : "#18181b",
-        color: props.active ? "#86efac" : "#a1a1aa",
-        fontSize: 12,
-        fontWeight: 700,
-      }}
-    >
-      {props.active ? "SESSION ACTIVE" : "NO ACTIVE SESSION"}
-    </span>
-  )
-}
 
 function parseUtc(value: string): number | null {
   if (!value) return null
@@ -71,20 +34,54 @@ export default function Overview() {
   const [authority, setAuthority] = useState<AuthorityStatus | null>(null)
   const [trust, setTrust] = useState<TrustBundleInfo | null>(null)
   const [signers, setSigners] = useState<AllowedSignersInfo | null>(null)
-  const [nowMs, setNowMs] = useState<number>(Date.now())
+  const [mode, setMode] = useState<"local" | "managed">("local")
+  const [nowMs, setNowMs] = useState(Date.now())
+
+  async function load() {
+    const [a, t, s, m] = await Promise.all([
+      getAuthorityStatus(),
+      getTrustBundleInfo(),
+      getAllowedSignersInfo(),
+      getWorkbenchMode(),
+    ])
+
+    setAuthority(a)
+    setTrust(t)
+    setSigners(s)
+    setMode(m.mode)
+
+    localStorage.setItem(
+      "neverlost.settings.managed_mode",
+      m.mode === "managed" ? "true" : "false",
+    )
+    }
 
   useEffect(() => {
-    async function load() {
-      const [a, t, s] = await Promise.all([
-        getAuthorityStatus(),
-        getTrustBundleInfo(),
-        getAllowedSignersInfo(),
-      ])
-      setAuthority(a)
-      setTrust(t)
-      setSigners(s)
+    void load()
+
+    const localRefresh = () => {
+      void load()
     }
-    load()
+
+    window.addEventListener("neverlost-authority-changed", localRefresh)
+    window.addEventListener("neverlost-settings-changed", localRefresh)
+
+    let alive = true
+    let cleanup: null | (() => void) = null
+
+    void listen("neverlost_authority_changed", async () => {
+      if (!alive) return
+      await load()
+    }).then((unlisten) => {
+      cleanup = unlisten
+    })
+
+    return () => {
+      alive = false
+      if (cleanup) cleanup()
+      window.removeEventListener("neverlost-authority-changed", localRefresh)
+      window.removeEventListener("neverlost-settings-changed", localRefresh)
+    }
   }, [])
 
   useEffect(() => {
@@ -95,58 +92,84 @@ export default function Overview() {
   const sessionDuration = useMemo(() => {
     const started = parseUtc(authority?.started_utc ?? "")
     if (started === null) return ""
+
     const ended = parseUtc(authority?.ended_utc ?? "")
     if (authority?.active) {
       return `Session active for ${humanDuration(nowMs - started)}`
     }
+
     if (ended !== null) {
       return `Session was active for ${humanDuration(ended - started)}`
     }
+
     return ""
   }, [authority, nowMs])
 
   return (
-    <div style={{ padding: 24, minWidth: 0 }}>
-      <h1 style={{ fontSize: 32, marginTop: 0 }}>NeverLost Workbench</h1>
+    <div>
+      <div className="page-title">NeverLost Workbench</div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
-        <StatusCard
-          title="Authority Status"
-          status={authority?.active ? "ACTIVE" : "INACTIVE"}
-          detail={authority?.principal ?? ""}
-        />
-        <StatusCard
-          title="Trust Bundle"
-          status={trust ? "READY" : "Loading"}
-          detail={trust?.expected_principal ?? ""}
-        />
-        <StatusCard
-          title="Allowed Signers"
-          status={signers ? "READY" : "Loading"}
-          detail={signers?.sha256 ?? ""}
-        />
+      <div className="grid grid-3">
+        <section className="card">
+          <div className="card-title">Authority Status</div>
+          <div style={{ marginBottom: 10 }}>
+            <span className={authority?.active ? "pill pill-green" : "pill pill-neutral"}>
+              {authority?.active ? "ACTIVE" : "INACTIVE"}
+            </span>
+          </div>
+          <div className="muted" style={{ overflowWrap: "anywhere" }}>
+            {authority?.principal ?? ""}
+          </div>
+        </section>
+
+        <section className="card">
+          <div className="card-title">Session Mode</div>
+          <span className={mode === "managed" ? "pill pill-green" : "pill pill-neutral"}>
+            {mode === "managed" ? "MANAGED MODE" : "LOCAL MODE"}
+          </span>
+        </section>
+
+        <section className="card">
+          <div className="card-title">Allowed Signers</div>
+          <div style={{ marginBottom: 10 }}>
+            <span className="pill pill-green">READY</span>
+          </div>
+          <div className="muted" style={{ overflowWrap: "anywhere" }}>
+            {signers?.sha256 ?? ""}
+          </div>
+        </section>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <section style={{ border: "1px solid #27272a", borderRadius: 16, padding: 16, minWidth: 0 }}>
-          <h2 style={{ marginTop: 0 }}>Current Session</h2>
-          <div style={{ marginBottom: 12 }}>
-            <SessionChip active={!!authority?.active} />
+      <section className="card section">
+        <div className="card-title">Current Session</div>
+
+        <div style={{ marginBottom: 12 }}>
+          <span className={authority?.active ? "pill pill-green" : "pill pill-neutral"}>
+            {authority?.active ? "SESSION ACTIVE" : "NO ACTIVE SESSION"}
+          </span>
+        </div>
+
+        <div className="grid" style={{ gap: 8 }}>
+          <div>Principal: {authority?.principal ?? ""}</div>
+          <div style={{ overflowWrap: "anywhere" }}>
+            Session ID: {authority?.session_id ?? ""}
           </div>
-          <div style={{ overflowWrap: "anywhere" }}>Principal: {authority?.principal ?? ""}</div>
-          <div style={{ overflowWrap: "anywhere" }}>Session ID: {authority?.session_id ?? ""}</div>
           <div>Started: {authority?.started_utc ?? ""}</div>
           <div>Ended: {authority?.ended_utc ?? ""}</div>
-          {sessionDuration ? <div style={{ marginTop: 12, fontWeight: 700 }}>{sessionDuration}</div> : null}
-        </section>
+          {sessionDuration ? <div>{sessionDuration}</div> : null}
+        </div>
+      </section>
 
-        <section style={{ border: "1px solid #27272a", borderRadius: 16, padding: 16, minWidth: 0 }}>
-          <h2 style={{ marginTop: 0 }}>Identity Summary</h2>
+      <section className="card section">
+        <div className="card-title">Identity Summary</div>
+        <div className="grid" style={{ gap: 8 }}>
           <div>Expected Principal: {trust?.expected_principal ?? ""}</div>
           <div>Namespaces: {trust?.expected_namespaces?.length ?? 0}</div>
-          <div>Allowed Signers SHA-256: {signers?.sha256 ?? ""}</div>
-        </section>
-      </div>
+          <div style={{ overflowWrap: "anywhere" }}>
+            Allowed Signers SHA-256: {signers?.sha256 ?? ""}
+          </div>
+        </div>
+      </section>
     </div>
   )
 }

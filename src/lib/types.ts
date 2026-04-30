@@ -8,6 +8,11 @@ export type EvidenceBundle = {
   sha256sums_path: string
   stdout: string
   stderr: string
+  source?: string
+  source_detail?: string
+  actor_id?: string
+  actor_role?: string
+  actor_display_name?: string
 }
 
 export type LedgerEntry = {
@@ -51,4 +56,20 @@ export type AuthorityStatus = {
   session_id: string
   started_utc: string
   ended_utc: string
+}
+export type CliActionResult = {
+  ok: boolean
+  area: string
+  action: string
+  exit_code: number
+  stdout: string
+  stderr: string
+  source?: string
+  source_detail?: string
+  actor_id?: string
+  actor_role?: string
+  actor_display_name?: string
+}
+export type WorkbenchModeState = {
+  mode: "local" | "managed"
 }

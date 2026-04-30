@@ -369,15 +369,30 @@ pub fn get_latest_workbench_runs() -> Result<Vec<LatestRunInfo>, String> {
 
 #[tauri::command]
 pub fn open_path(path: String) -> Result<(), String> {
-    let pb = PathBuf::from(&path);
-    if !pb.exists() {
+    let p = std::path::PathBuf::from(&path);
+
+    if !p.exists() {
         return Err(format!("OPEN_PATH_MISSING: {}", path));
     }
 
-    Command::new("cmd")
-        .args(["/C", "start", "", &path])
+    if p.is_dir() {
+        std::process::Command::new("explorer")
+            .arg(p)
+            .spawn()
+            .map_err(|e| format!("OPEN_DIR_FAILED: {}", e))?;
+        return Ok(());
+    }
+
+    let normalized = p
+        .canonicalize()
+        .unwrap_or_else(|_| std::path::PathBuf::from(&path));
+
+    let select_arg = format!("/select,{}", normalized.display());
+
+    std::process::Command::new("explorer")
+        .arg(select_arg)
         .spawn()
-        .map_err(|e| format!("OPEN_PATH_FAILED: {}", e))?;
+        .map_err(|e| format!("OPEN_FILE_IN_EXPLORER_FAILED: {}", e))?;
 
     Ok(())
 }
@@ -440,4 +455,342 @@ pub fn confirm_authority() -> Result<AuthorityActionResult, String> {
 #[tauri::command]
 pub fn end_authority() -> Result<AuthorityActionResult, String> {
     run_authority_script("end_authority_v1.ps1", "authority.ended")
+}
+
+#[derive(serde::Serialize)]
+pub struct CliActionResult {
+    ok: bool,
+    area: String,
+    action: String,
+    exit_code: i32,
+    stdout: String,
+    stderr: String,
+    source: String,
+    source_detail: String,
+    actor_id: String,
+    actor_role: String,
+    actor_display_name: String,
+}
+
+fn resolve_repo_root_for_cli() -> Result<std::path::PathBuf, String> {
+    let mut dir = std::env::current_dir()
+        .map_err(|e| format!("CURRENT_DIR_FAILED: {}", e))?;
+
+    for _ in 0..6 {
+        let cli = dir.join("scripts").join("neverlost_cli_v1.ps1");
+        if cli.exists() {
+            return Ok(dir);
+        }
+
+        if !dir.pop() {
+            break;
+        }
+    }
+
+    Err("REPO_ROOT_WITH_CLI_NOT_FOUND".to_string())
+}
+
+#[tauri::command]
+pub fn run_neverlost_cli_action(area: String, action: String, mode: Option<String>, source: Option<String>) -> Result<CliActionResult, String> {
+    let repo_root = resolve_repo_root_for_cli()?;
+    let cli_path = repo_root.join("scripts").join("neverlost_cli_v1.ps1");
+
+    if !cli_path.exists() {
+        return Err(format!("CLI_PATH_MISSING: {}", cli_path.display()));
+    }
+
+    let ps_exe = std::env::var("WINDIR")
+        .map(|w| format!(r"{}\System32\WindowsPowerShell\v1.0\powershell.exe", w))
+        .unwrap_or_else(|_| r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe".to_string());
+
+    let output = std::process::Command::new(ps_exe)
+        .arg("-NoProfile")
+        .arg("-NonInteractive")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-File")
+        .arg(cli_path)
+        .arg("-RepoRoot")
+        .arg(repo_root.to_string_lossy().to_string())
+        .arg("-Area")
+        .arg(area.clone())
+        .arg("-Action")
+        .arg(action.clone())
+        .output()
+        .map_err(|e| format!("CLI_EXEC_FAILED: {}", e))?;
+
+    let exit_code = output.status.code().unwrap_or(-1);
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    let mode_clean = mode.unwrap_or_else(|| "local".to_string()).to_lowercase();
+    let mode_dir = if mode_clean == "managed" { "managed" } else { "local" };
+    let source_clean = source.unwrap_or_else(|| "cli".to_string()).to_lowercase();
+    let source_dir = match source_clean.as_str() {
+        "tray" => "tray",
+        "workbench" => "workbench",
+        "admin" => "admin",
+        _ => "cli",
+    };
+
+    let source_detail = format!("{}.{}.{}", source_dir, area, action);
+
+    let actor_id = std::env::var("USERNAME").unwrap_or_else(|_| "local-operator".to_string());
+    let actor_display_name = actor_id.clone();
+    let actor_role = match source_dir {
+        "admin" => "admin",
+        _ => "operator",
+    };
+
+    // --- ADMIN REQUIRES MANAGED MODE ---
+    let admin_requires_managed = actor_role == "admin" && mode_dir != "managed";
+
+    if admin_requires_managed {
+        return Ok(CliActionResult {
+            ok: false,
+            area,
+            action,
+            exit_code: 403,
+            stdout: "".to_string(),
+            stderr: "ADMIN_REQUIRES_MANAGED_MODE".to_string(),
+            source: source_dir.to_string(),
+            source_detail,
+            actor_id,
+            actor_role: actor_role.to_string(),
+            actor_display_name,
+        });
+    }
+
+    let allowed = match actor_role {
+        "admin" => action == "confirm" || action == "end",
+        "operator" => action == "start" || action == "confirm" || action == "end",
+        _ => false,
+    };
+
+    if !allowed {
+        let receipt_dir = repo_root
+            .join("proofs")
+            .join("receipts")
+            .join("workbench_modes")
+            .join(mode_dir);
+
+        let _ = std::fs::create_dir_all(&receipt_dir);
+
+        let receipt_path = receipt_dir.join("authority_actions.ndjson");
+        let time_utc = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+        let denied = serde_json::json!({
+            "schema": "neverlost.workbench.authority_action.v1",
+            "time_utc": time_utc,
+            "mode": mode_dir,
+            "area": area,
+            "action": action,
+            "ok": false,
+            "decision": "deny",
+            "reason": "ROLE_ACTION_DENIED",
+            "source": source_dir,
+            "source_detail": source_detail,
+            "actor_id": actor_id,
+            "actor_display_name": actor_display_name,
+            "actor_role": actor_role,
+            "stdout": "",
+            "stderr": "ROLE_ACTION_DENIED"
+        });
+
+        if let Ok(line) = serde_json::to_string(&denied) {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&receipt_path) {
+                let _ = writeln!(f, "{}", line);
+            }
+        }
+
+        return Ok(CliActionResult {
+            ok: false,
+            area,
+            action,
+            exit_code: 403,
+            stdout: "".to_string(),
+            stderr: "ROLE_ACTION_DENIED".to_string(),
+            source: source_dir.to_string(),
+            source_detail,
+            actor_id,
+            actor_role: actor_role.to_string(),
+            actor_display_name,
+        });
+    }
+
+    let allowed = match actor_role {
+        "admin" => action == "confirm" || action == "end",
+        "operator" => action == "start" || action == "confirm" || action == "end",
+        _ => false,
+    };
+
+    if !allowed {
+        let receipt_dir = repo_root
+            .join("proofs")
+            .join("receipts")
+            .join("workbench_modes")
+            .join(mode_dir);
+
+        let _ = std::fs::create_dir_all(&receipt_dir);
+
+        let receipt_path = receipt_dir.join("authority_actions.ndjson");
+        let time_utc = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+        let denied = serde_json::json!({
+            "schema": "neverlost.workbench.authority_action.v1",
+            "time_utc": time_utc,
+            "mode": mode_dir,
+            "area": area,
+            "action": action,
+            "ok": false,
+            "decision": "deny",
+            "reason": "ROLE_ACTION_DENIED",
+            "source": source_dir,
+            "source_detail": source_detail,
+            "actor_id": actor_id,
+            "actor_display_name": actor_display_name,
+            "actor_role": actor_role,
+            "stdout": "",
+            "stderr": "ROLE_ACTION_DENIED"
+        });
+
+        if let Ok(line) = serde_json::to_string(&denied) {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&receipt_path) {
+                let _ = writeln!(f, "{}", line);
+            }
+        }
+
+        return Ok(CliActionResult {
+            ok: false,
+            area,
+            action,
+            exit_code: 403,
+            stdout: "".to_string(),
+            stderr: "ROLE_ACTION_DENIED".to_string(),
+            source: source_dir.to_string(),
+            source_detail,
+            actor_id,
+            actor_role: actor_role.to_string(),
+            actor_display_name,
+        });
+    }
+
+    let receipt_dir = repo_root
+        .join("proofs")
+        .join("receipts")
+        .join("workbench_modes")
+        .join(mode_dir);
+
+    let _ = std::fs::create_dir_all(&receipt_dir);
+
+    let receipt_path = receipt_dir.join("authority_actions.ndjson");
+    let time_utc = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+
+    let receipt = serde_json::json!({
+        "schema": "neverlost.workbench.authority_action.v1",
+        "time_utc": time_utc,
+        "mode": mode_dir,
+        "source": source_dir,
+        "source_detail": source_detail,
+        "actor_id": actor_id,
+        "actor_display_name": actor_display_name,
+        "actor_role": actor_role,
+        "area": area,
+        "action": action,
+        "ok": exit_code == 0,
+        "exit_code": exit_code,
+        "stdout": stdout.trim(),
+        "stderr": stderr.trim()
+    });
+
+    if let Ok(line) = serde_json::to_string(&receipt) {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&receipt_path) {
+            let _ = writeln!(f, "{}", line);
+        }
+    }
+
+    Ok(CliActionResult {
+        ok: exit_code == 0,
+        area: receipt["area"].as_str().unwrap_or("").to_string(),
+        action: receipt["action"].as_str().unwrap_or("").to_string(),
+        exit_code,
+        stdout: receipt["stdout"].as_str().unwrap_or("").to_string(),
+        stderr: receipt["stderr"].as_str().unwrap_or("").to_string(),
+        source: receipt["source"].as_str().unwrap_or("").to_string(),
+        source_detail: receipt["source_detail"].as_str().unwrap_or("").to_string(),
+        actor_id: receipt["actor_id"].as_str().unwrap_or("").to_string(),
+        actor_role: receipt["actor_role"].as_str().unwrap_or("").to_string(),
+        actor_display_name: receipt["actor_display_name"].as_str().unwrap_or("").to_string(),
+    })
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct WorkbenchModeState {
+    mode: String,
+}
+
+fn resolve_repo_root_for_workbench_mode() -> Result<std::path::PathBuf, String> {
+    let mut dir = std::env::current_dir()
+        .map_err(|e| format!("CURRENT_DIR_FAILED: {}", e))?;
+
+    for _ in 0..6 {
+        if dir.join("scripts").join("neverlost_cli_v1.ps1").exists() {
+            return Ok(dir);
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+
+    Err("REPO_ROOT_NOT_FOUND".to_string())
+}
+
+#[tauri::command]
+pub fn get_workbench_mode() -> Result<WorkbenchModeState, String> {
+    let repo_root = resolve_repo_root_for_workbench_mode()?;
+    let path = repo_root.join("proofs").join("receipts").join("workbench_mode.json");
+
+    if !path.exists() {
+        return Ok(WorkbenchModeState { mode: "local".to_string() });
+    }
+
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|e| format!("READ_WORKBENCH_MODE_FAILED: {}", e))?;
+
+    let parsed: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("PARSE_WORKBENCH_MODE_FAILED: {}", e))?;
+
+    let mode = parsed.get("mode").and_then(|v| v.as_str()).unwrap_or("local");
+
+    Ok(WorkbenchModeState {
+        mode: if mode == "managed" { "managed".to_string() } else { "local".to_string() },
+    })
+}
+
+#[tauri::command]
+pub fn set_workbench_mode(mode: String) -> Result<WorkbenchModeState, String> {
+    let clean = if mode.to_lowercase() == "managed" { "managed" } else { "local" };
+
+    let repo_root = resolve_repo_root_for_workbench_mode()?;
+    let dir = repo_root.join("proofs").join("receipts");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("CREATE_WORKBENCH_MODE_DIR_FAILED: {}", e))?;
+
+    let path = dir.join("workbench_mode.json");
+    let body = serde_json::json!({
+        "schema": "neverlost.workbench.mode.v1",
+        "mode": clean,
+        "time_utc": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    });
+
+    let text = serde_json::to_string_pretty(&body)
+        .map_err(|e| format!("SERIALIZE_WORKBENCH_MODE_FAILED: {}", e))?;
+
+    std::fs::write(&path, text)
+        .map_err(|e| format!("WRITE_WORKBENCH_MODE_FAILED: {}", e))?;
+
+    Ok(WorkbenchModeState { mode: clean.to_string() })
 }

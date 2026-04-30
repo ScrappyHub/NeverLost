@@ -1,46 +1,30 @@
 import { invoke } from "@tauri-apps/api/core"
+
 import type {
   AllowedSignersInfo,
   AuthorityStatus,
+  CliActionResult,
   EvidenceBundle,
-  FileTextResult,
   LatestRunInfo,
   LedgerEntry,
   TrustBundleInfo,
+  WorkbenchModeState,
 } from "./types"
 
-function sanitizeOutput(text: string): string {
-  return text
-    .replaceAll("NEVERLOST_TIER0_FULL_GREEN", "Verification Passed")
-    .replaceAll("NEVERLOST_VECTORS_FULL_GREEN", "Validation Suite Passed")
-    .replaceAll("NEVERLOST_VECTOR_POSITIVE_OK", "Positive Validation Passed")
-    .replaceAll("NEVERLOST_VECTOR_NEGATIVE_WRONG_PRINCIPAL_OK", "Wrong Principal Negative Passed")
-    .replaceAll("NEVERLOST_VECTOR_NEGATIVE_NAMESPACE_OK", "Namespace Negative Passed")
-    .replaceAll("NEVERLOST_VECTOR_NEGATIVE_MALFORMED_SHAPE_OK", "Malformed Shape Negative Passed")
-}
-
-function sanitizeBundle(bundle: EvidenceBundle): EvidenceBundle {
-  return {
-    ...bundle,
-    stdout: sanitizeOutput(bundle.stdout),
-    stderr: sanitizeOutput(bundle.stderr),
-  }
-}
-
 export async function runTier0(): Promise<EvidenceBundle> {
-  return sanitizeBundle(await invoke<EvidenceBundle>("run_tier0"))
+  return await invoke<EvidenceBundle>("run_tier0")
 }
 
 export async function runVectors(): Promise<EvidenceBundle> {
-  return sanitizeBundle(await invoke<EvidenceBundle>("run_vectors"))
+  return await invoke<EvidenceBundle>("run_vectors")
 }
 
 export async function getReceiptLedger(): Promise<LedgerEntry[]> {
   return await invoke<LedgerEntry[]>("get_receipt_ledger")
 }
 
-export async function readFileText(path: string): Promise<FileTextResult> {
-  return await invoke<FileTextResult>("read_file_text", { path })
+export async function readFileText(path: string): Promise<string> {
+  return await invoke<string>("read_file_text", { path })
 }
 
 export async function getTrustBundleInfo(): Promise<TrustBundleInfo> {
@@ -56,25 +40,46 @@ export async function getLatestWorkbenchRuns(): Promise<LatestRunInfo[]> {
 }
 
 export async function openPath(path: string): Promise<void> {
-  await invoke("open_path", { path })
+  return await invoke<void>("open_path", { path })
 }
 
 export async function getAuthorityStatus(): Promise<AuthorityStatus> {
   return await invoke<AuthorityStatus>("get_authority_status")
 }
 
-export async function startAuthority() {
-  return await invoke("start_authority")
+export async function startAuthority(): Promise<AuthorityStatus> {
+  return await invoke<AuthorityStatus>("start_authority")
 }
 
-export async function confirmAuthority() {
-  return await invoke("confirm_authority")
+export async function confirmAuthority(): Promise<AuthorityStatus> {
+  return await invoke<AuthorityStatus>("confirm_authority")
 }
 
-export async function endAuthority() {
-  return await invoke("end_authority")
+export async function endAuthority(): Promise<AuthorityStatus> {
+  return await invoke<AuthorityStatus>("end_authority")
 }
 
 export async function copyText(text: string): Promise<void> {
   await navigator.clipboard.writeText(text)
+}
+
+export async function runNeverlostCliAction(
+  area: string,
+  action: string,
+  mode: "local" | "managed" = "local",
+  source: "workbench" | "tray" | "admin" | "cli" = "workbench",
+): Promise<CliActionResult> {
+  return await invoke<CliActionResult>("run_neverlost_cli_action", {
+    area,
+    action,
+    mode,
+    source,
+  })
+}
+export async function getWorkbenchMode(): Promise<WorkbenchModeState> {
+  return await invoke<WorkbenchModeState>("get_workbench_mode")
+}
+
+export async function setWorkbenchMode(mode: "local" | "managed"): Promise<WorkbenchModeState> {
+  return await invoke<WorkbenchModeState>("set_workbench_mode", { mode })
 }

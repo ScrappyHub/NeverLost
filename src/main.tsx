@@ -1,20 +1,25 @@
 import React from "react"
 import ReactDOM from "react-dom/client"
-import App from "./App"
-import "./index.css"
-import { getAuthorityStatus, startAuthority } from "./lib/api"
 import { getCurrentWindow } from "@tauri-apps/api/window"
+
+import App from "./App"
+import { getAuthorityStatus, startAuthority } from "./lib/api"
+
+import "./index.css"
+import "./styles.css"
 
 const KEY_AUTO_START_AUTHORITY = "neverlost.settings.auto_start_authority"
 const KEY_LAUNCH_HIDDEN = "neverlost.settings.launch_hidden"
 
 function readBool(key: string, fallback: boolean): boolean {
   const raw = localStorage.getItem(key)
-  if (raw === null) return fallback
+  if (raw === null) {
+    return fallback
+  }
   return raw === "true"
 }
 
-async function bootstrapNeverLost() {
+async function bootstrapNeverLost(): Promise<void> {
   try {
     const appWindow = getCurrentWindow()
 
@@ -43,7 +48,7 @@ async function bootstrapNeverLost() {
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <App />
-  </React.StrictMode>
+  </React.StrictMode>,
 )
 
-bootstrapNeverLost()
+void bootstrapNeverLost()
