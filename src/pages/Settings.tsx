@@ -192,21 +192,12 @@ export default function Settings() {
         </Card>
 
         <Card title="Managed Mode">
-          <div style={{ display: "grid", gap: 12 }}>
+          <div className="grid" style={{ gap: 14 }}>
             <div>
               <div style={{ fontWeight: 700 }}>Managed deployment label</div>
-              <div style={{ color: "#a1a1aa", fontSize: 14 }}>
-                Marks this workbench as part of a managed environment. This is a UI/device mode flag, not enforcement.
+              <div className="muted">
+                Managed/local mode is controlled from the Authority page and tray so active sessions cannot drift.
               </div>
-              <div style={{ marginTop: 8 }}>
-                <button onClick={handleManagedModeToggle}>
-                  {managedMode ? "Disable Managed Mode" : "Enable Managed Mode"}
-                </button>
-              </div>
-            </div>
-
-            <div style={{ color: "#d4d4d8", fontSize: 14 }}>
-              Managed mode today is lightweight. Hard enforcement, cross-node administration, and non-stoppable service policy belong in later runtime/service layers.
             </div>
           </div>
         </Card>

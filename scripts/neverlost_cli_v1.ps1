@@ -7,6 +7,35 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# NEVERLOST_ACTIVE_START_GUARD_V1
+$__nlRepo = (Resolve-Path -LiteralPath $RepoRoot).Path
+$__nlStatePath = Join-Path $__nlRepo "proofs\receipts\active_authority_session.json"
+
+if($Area -eq "authority" -and $Action -eq "start" -and (Test-Path -LiteralPath $__nlStatePath -PathType Leaf)){
+  try {
+    $__state = Get-Content -Raw -LiteralPath $__nlStatePath -Encoding UTF8 | ConvertFrom-Json
+    $__sid = ""
+    $__ended = ""
+    $__activeBool = $false
+
+    if($__state.PSObject.Properties.Name -contains "session_id"){ $__sid = [string]$__state.session_id }
+    if($__state.PSObject.Properties.Name -contains "ended_utc"){ $__ended = [string]$__state.ended_utc }
+    if($__state.PSObject.Properties.Name -contains "active"){ $__activeBool = [bool]$__state.active }
+
+    $__active = $__activeBool -or ((-not [string]::IsNullOrWhiteSpace($__sid)) -and [string]::IsNullOrWhiteSpace($__ended))
+
+    if($__active){
+      Write-Host "AUTHORITY_START_DENIED_ALREADY_ACTIVE"
+      Write-Host ("SESSION_ID=" + $__sid)
+      exit 2
+    }
+  } catch {
+    throw ("AUTHORITY_START_GUARD_FAILED: " + $_.Exception.Message)
+  }
+}
+# NEVERLOST_ACTIVE_START_GUARD_V1_END
+
+
 function Die([string]$m){ throw $m }
 
 $PSExe = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
