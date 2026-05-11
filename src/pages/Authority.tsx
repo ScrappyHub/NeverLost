@@ -17,6 +17,8 @@ type TimelineRow = {
   utc: string
   principal: string
   sessionId: string
+  source: string
+  actor: string
 }
 
 function parseAuthorityRows(rows: LedgerEntry[]): TimelineRow[] {
@@ -26,19 +28,27 @@ function parseAuthorityRows(rows: LedgerEntry[]): TimelineRow[] {
     try {
       const obj = JSON.parse(row.raw)
       const action = String(obj.action ?? "")
+
       if (
         action === "authority.started" ||
         action === "authority.confirmed" ||
         action === "authority.ended"
       ) {
+        const actorDisplay = String(obj.actor_display_name ?? obj.actor_id ?? "")
+        const actorRole = String(obj.actor_role ?? "")
+        const actor = actorRole ? `${actorDisplay} (${actorRole})` : actorDisplay
+
         parsed.push({
           action,
           utc: String(obj.time_utc ?? ""),
           principal: String(obj.principal ?? ""),
           sessionId: String(obj.session_id ?? ""),
+          source: String(obj.source_detail ?? obj.source ?? "core"),
+          actor,
         })
       }
     } catch {
+      // Ignore malformed receipt lines in the UI.
     }
   }
 
@@ -68,11 +78,19 @@ function humanDuration(ms: number): string {
   return `${s}s`
 }
 
+function shortId(value: string | undefined): string {
+  if (!value) return ""
+  if (value.length <= 24) return value
+  return `${value.slice(0, 12)}...${value.slice(-8)}`
+}
+
 export default function Authority() {
   const [status, setStatus] = useState<AuthorityStatus | null>(null)
   const [rows, setRows] = useState<LedgerEntry[]>([])
   const [busy, setBusy] = useState(false)
   const [nowMs, setNowMs] = useState<number>(Date.now())
+  const [message, setMessage] = useState("")
+  const [errorMessage, setErrorMessage] = useState("")
 
   async function refresh() {
     const [s, r] = await Promise.all([
@@ -84,7 +102,7 @@ export default function Authority() {
   }
 
   useEffect(() => {
-    refresh()
+    void refresh()
   }, [])
 
   useEffect(() => {
@@ -92,31 +110,42 @@ export default function Authority() {
     return () => window.clearInterval(id)
   }, [])
 
-  async function handleStart() {
+  async function runAction(name: "start" | "confirm" | "end") {
     setBusy(true)
-    try {
-      await startAuthority()
-      await refresh()
-    } finally {
-      setBusy(false)
-    }
-  }
+    setMessage("")
+    setErrorMessage("")
 
-  async function handleConfirm() {
-    setBusy(true)
     try {
-      await confirmAuthority()
-      await refresh()
-    } finally {
-      setBusy(false)
-    }
-  }
+      if (name === "start") {
+        if (status?.active) {
+          setErrorMessage("Start denied: a session is already active.")
+          return
+        }
+        await startAuthority()
+        setMessage("Authority session started.")
+      }
 
-  async function handleEnd() {
-    setBusy(true)
-    try {
-      await endAuthority()
+      if (name === "confirm") {
+        if (!status?.active) {
+          setErrorMessage("Confirm denied: no active session.")
+          return
+        }
+        await confirmAuthority()
+        setMessage("Authority session confirmed.")
+      }
+
+      if (name === "end") {
+        if (!status?.active) {
+          setErrorMessage("End denied: no active session.")
+          return
+        }
+        await endAuthority()
+        setMessage("Authority session ended.")
+      }
+
       await refresh()
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error))
     } finally {
       setBusy(false)
     }
@@ -146,10 +175,27 @@ export default function Authority() {
       <h1 style={{ fontSize: 32, marginTop: 0 }}>Authority</h1>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-        <button onClick={handleStart} disabled={busy}>Start Authority</button>
-        <button onClick={handleConfirm} disabled={busy}>Confirm Authority</button>
-        <button onClick={handleEnd} disabled={busy}>End Authority</button>
+        <button onClick={() => void runAction("start")} disabled={busy || !!status?.active}>
+          Start Authority
+        </button>
+        <button onClick={() => void runAction("confirm")} disabled={busy || !status?.active}>
+          Confirm Authority
+        </button>
+        <button onClick={() => void runAction("end")} disabled={busy || !status?.active}>
+          End Authority
+        </button>
+        <button onClick={() => void refresh()} disabled={busy}>
+          Refresh
+        </button>
       </div>
+
+      {message ? (
+        <div style={{ marginBottom: 16, color: "#86efac", fontWeight: 700 }}>{message}</div>
+      ) : null}
+
+      {errorMessage ? (
+        <div style={{ marginBottom: 16, color: "#fca5a5", fontWeight: 700 }}>{errorMessage}</div>
+      ) : null}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
         <section style={{ border: "1px solid #27272a", borderRadius: 16, padding: 16, minWidth: 0 }}>
@@ -157,6 +203,7 @@ export default function Authority() {
           <div>Status: {status?.active ? "ACTIVE" : "INACTIVE"}</div>
           <div style={{ overflowWrap: "anywhere" }}>Principal: {status?.principal ?? ""}</div>
           <div style={{ overflowWrap: "anywhere" }}>Session ID: {status?.session_id ?? ""}</div>
+          <div>Short Session: {shortId(status?.session_id)}</div>
           <div>Started: {status?.started_utc ?? ""}</div>
           <div>Ended: {status?.ended_utc ?? ""}</div>
 
@@ -169,9 +216,13 @@ export default function Authority() {
         <section style={{ border: "1px solid #27272a", borderRadius: 16, padding: 16, minWidth: 0 }}>
           <h2 style={{ marginTop: 0 }}>Session Summary</h2>
           <div>State: {status?.active ? "Open session" : "Closed session"}</div>
-          <div>Current principal: {status?.principal ?? ""}</div>
-          <div>Last known session: {status?.session_id ?? ""}</div>
+          <div style={{ overflowWrap: "anywhere" }}>Current principal: {status?.principal ?? ""}</div>
+          <div style={{ overflowWrap: "anywhere" }}>Last known session: {status?.session_id ?? ""}</div>
           {sessionDuration ? <div style={{ marginTop: 12, fontWeight: 700 }}>{sessionDuration}</div> : null}
+
+          <div style={{ marginTop: 16, color: "#a1a1aa" }}>
+            Admin confirmation stays CLI-only through scripts\\nl-admin.ps1.
+          </div>
         </section>
       </div>
 
@@ -193,6 +244,8 @@ export default function Authority() {
               >
                 <div style={{ fontWeight: 700 }}>{friendlyAction(item.action)}</div>
                 <div>UTC: {item.utc}</div>
+                <div>Source: {item.source}</div>
+                {item.actor ? <div>Actor: {item.actor}</div> : null}
                 <div style={{ overflowWrap: "anywhere" }}>Principal: {item.principal}</div>
                 <div style={{ overflowWrap: "anywhere" }}>Session ID: {item.sessionId}</div>
               </div>
