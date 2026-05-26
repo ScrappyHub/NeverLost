@@ -196,8 +196,11 @@ export default function Settings() {
             <div>
               <div style={{ fontWeight: 700 }}>Managed deployment label</div>
               <div className="muted">
-                Managed/local mode is controlled from the Authority page and tray so active sessions cannot drift.
+                Managed/local mode is controlled from Authority and tray state. Settings only reports the current value so startup cannot drift mode.
               </div>
+            </div>
+            <div className="muted">
+              To change mode, end the active session first, then use the Authority/tray mode action.
             </div>
           </div>
         </Card>

@@ -6,6 +6,8 @@ import {
   getAuthorityStatus,
   getReceiptLedger,
   startAuthority,
+  getWorkbenchMode,
+  setWorkbenchMode,
 } from "../lib/api"
 import type {
   AuthorityStatus,
@@ -70,17 +72,20 @@ function humanDuration(ms: number): string {
 
 export default function Authority() {
   const [status, setStatus] = useState<AuthorityStatus | null>(null)
+  const [mode, setMode] = useState<"local" | "managed">("local")
   const [rows, setRows] = useState<LedgerEntry[]>([])
   const [busy, setBusy] = useState(false)
   const [nowMs, setNowMs] = useState<number>(Date.now())
 
   async function refresh() {
-    const [s, r] = await Promise.all([
+    const [s, r, m] = await Promise.all([
       getAuthorityStatus(),
       getReceiptLedger(),
+      getWorkbenchMode(),
     ])
     setStatus(s)
     setRows(r)
+    setMode(m.mode === "managed" ? "managed" : "local")
   }
 
   useEffect(() => {
@@ -145,6 +150,28 @@ export default function Authority() {
     <div style={{ padding: 24, minWidth: 0 }}>
       <h1 style={{ fontSize: 32, marginTop: 0 }}>Authority</h1>
 
+            <section className="card section">
+        <div className="card-title">Session Mode Control</div>
+        <div className="grid" style={{ gap: 10 }}>
+          <div>
+            Current mode:{" "}
+            <span className={mode === "managed" ? "pill pill-green" : "pill pill-neutral"}>
+              {mode === "managed" ? "MANAGED MODE" : "LOCAL MODE"}
+            </span>
+          </div>
+          <div className="muted">
+            Mode can only change while authority is inactive. Active sessions lock the current mode.
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button onClick={() => void switchMode("local")} disabled={busy || !!status?.active || mode === "local"}>
+              Use Local Mode
+            </button>
+            <button onClick={() => void switchMode("managed")} disabled={busy || !!status?.active || mode === "managed"}>
+              Use Managed Mode
+            </button>
+          </div>
+        </div>
+      </section>
       <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
         <button onClick={handleStart} disabled={busy}>Start Authority</button>
         <button onClick={handleConfirm} disabled={busy}>Confirm Authority</button>
